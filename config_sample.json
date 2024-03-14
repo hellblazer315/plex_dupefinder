@@ -42,6 +42,8 @@
   "PLEX_SERVER": "https://plex.your-server.com",
   "PLEX_TOKEN": "",
   "SCORE_FILESIZE": true,
+  "SCORE_VIDEOBITRATE": true,
+  "SCORE_AUDIOCHANNELS": true,
   "SKIP_LIST": [],
   "VIDEO_CODEC_SCORES": {
     "Unknown": 0,

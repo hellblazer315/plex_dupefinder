@@ -24,7 +24,7 @@ Follow these steps to set up the folder structure and retrieve your Python appli
 1. Open a terminal and navigate to the desired directory for your project.
 2. Run the following command to clone your repository and create the `app/` folder:
    ```
-   git clone https://github.com/Hossy/plex_dupefinder.git app
+   git clone https://github.com/hellblazer315/plex_dupefinder.git app
    ```
 
 This command clones your repository and creates the `/app` folder containing all files and directories from the git checkout, including the Dockerfile.
