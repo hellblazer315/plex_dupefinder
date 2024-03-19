@@ -98,26 +98,26 @@ def get_score(media_info):
                 score += int(keyword_score)
                 log.debug("Added %d to score for match filename_keyword %s", int(keyword_score), filename_keyword)
     # add bitrate to score
-    if cfg['SCORE_VIDEOBITRATE']:
-        score += int(media_info['video_bitrate']) * 2
-        log.debug("Added %d to score for video bitrate", int(media_info['video_bitrate']) * 2)
+    if cfg['SCORE_VIDEOBITRATE']['enabled']:
+        score += int(media_info['video_bitrate']) * cfg['SCORE_VIDEOBITRATE']['multiplier']
+        log.debug("Added %d to score for video bitrate being %r", int(media_info['video_bitrate']) * cfg['SCORE_VIDEOBITRATE']['multiplier'], str(media_info['video_bitrate']))
     # add duration to score
     score += int(media_info['video_duration']) / 300
-    log.debug("Added %d to score for video duration", int(media_info['video_duration']) / 300)
+    log.debug("Added %d to score for video duration being %r", int(media_info['video_duration']) / 300, str(media_info['video_duration']))
     # add width to score
     score += int(media_info['video_width']) * 2
-    log.debug("Added %d to score for video width", int(media_info['video_width']) * 2)
+    log.debug("Added %d to score for video width being %r", int(media_info['video_width']) * 2, str(media_info['video_width']))
     # add height to score
-    score += int(media_info['video_height']) * 2
-    log.debug("Added %d to score for video height", int(media_info['video_height']) * 2)
+    score += int(media_info['video_height']) * cfg['VIDEO_HEIGHT_MULTIPLIER']
+    log.debug("Added %d to score for video height being %r", int(media_info['video_height']) * cfg['VIDEO_HEIGHT_MULTIPLIER'], str(media_info['video_height']))
     # add audio channels to score
     if cfg['SCORE_AUDIOCHANNELS']:
         score += int(media_info['audio_channels']) * 1000
-        log.debug("Added %d to score for audio channels", int(media_info['audio_channels']) * 1000)
+        log.debug("Added %d to score for audio channels being %r", int(media_info['audio_channels']) * 1000, str(media_info['audio_channels']))
     # add file size to score
     if cfg['SCORE_FILESIZE']:
         score += int(media_info['file_size']) / 100000
-        log.debug("Added %d to score for total file size", int(media_info['file_size']) / 100000)
+        log.debug("Added %d to score for total file size being %r", int(media_info['file_size']) / 100000, str(media_info['file_size']))
     return int(score)
 
 
@@ -214,7 +214,7 @@ def delete_item(show_key, media_id):
     delete_url = urljoin(cfg['PLEX_SERVER'], '%s/media/%d' % (show_key, media_id))
     log.debug("Sending DELETE request to %r" % delete_url)
     if cfg['DRY_RUN']:
-        print("\t\tDRY RUN -- Would've deleted media item: %r" % media_id)
+        print("\t\tDRY RUN -- ✨ Would've deleted media item: %r" % media_id)
     else:
         if requests.delete(delete_url, headers={'X-Plex-Token': cfg['PLEX_TOKEN']}).status_code == 200:
             print("✨ Successfully deleted 🆔%r" % media_id)
