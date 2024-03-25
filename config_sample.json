@@ -1,4 +1,5 @@
 {
+  "LOGGING_TIMEZONE": "UTC",
   "AUDIO_CODEC_SCORES": {
     "Unknown": 0,
     "aac": 1000,

@@ -41,3 +41,7 @@ Three additional options (`SCORE_VIDEOBITRATE`, `SCORE_AUDIOCHANNELS`, and `VIDE
 `VIDEO_HEIGHT_MULTIPLIER` is the next simplest as it enables adjusting just how much the height (i.e. the "1080" in a 1920x1080 resolution video) impacts the overall score. This allows for example a 1920x1080 video that is otherwise similar to a 1920x800 video to score much higher. The default & original value for this attribute is 2.
 
 `SCORE_VIDEOBITRATE` combines both of these aspects into a single dictionary definiton. This can easily be toggled off entirely by changing **enabled** to `false` or the multiplier can be adjusted from the default setting of `2` if desired.
+
+## Activity Log Date & Timezone
+
+The `activity.log` file now tracks the date of every line as well as the timezone defined in the `config.json` file. The default value is UTC which mirrors the original script's functionality, if you would like to see the logs reported in a different timezone (such as the one your server is hosted in), update the `LOGGING_TIMEZONE` config value to match the **TZ_Identifier** from the table in [this wikipedia page](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). This will properly align with any shifts for daylight savings time.
