@@ -226,18 +226,32 @@ def get_media_info(item):
 
     return info
 
+def delete_item(show_key, media_id, file_size, file_path):
+    global total_deleted_files, total_deleted_size
 
-def delete_item(show_key, media_id):
+    # Check if the file size is over 1 GB - print in MB if under or GB if over.
+    if file_size >= 1024 * 1024 * 1024:
+        file_size_str = "{:.2f} GB".format(file_size / (1024 * 1024 * 1024))
+    else:
+        file_size_str = "{:.2f} MB".format(file_size / (1024 * 1024))
+    
     delete_url = urljoin(cfg['PLEX_SERVER'], '%s/media/%d' % (show_key, media_id))
     log.debug("Sending DELETE request to %r" % delete_url, extra=log_tz)
     if cfg['DRY_RUN']:
-        print("\t\tDRY RUN -- ✨ Would've deleted media item: %r" % media_id)
+        total_deleted_files += 1
+        total_deleted_size += file_size
+        print("\t\tDRY RUN -- ✨ Would've deleted media item: %r, Size: %s" % (file_path, file_size_str))
+        log.info("✨ Would have deleted file (DRY RUN): %r, Size: %s" % (file_path, file_size_str), extra=log_tz)
     else:
         if requests.delete(delete_url, headers={'X-Plex-Token': cfg['PLEX_TOKEN']}).status_code == 200:
-            print("✨ Successfully deleted 🆔%r" % media_id)
-
+            total_deleted_files += 1
+            total_deleted_size += file_size
+            print("✨ Successfully deleted %r, Size: %s" % (file_path, file_size_str))
+            log.info("✨ Successfully deleted file: %r, Size: %s" % (file_path, file_size_str), extra=log_tz)
         else:
-            print("⚠️ Deletion failed 🆔%r" % media_id)
+            print("⚠️ Deletion failed %r, Size: %s" % (file_path, file_size_str))
+            log.info("⚠️ Deletion failed: %r, Size: %s" % (file_path, file_size_str), extra=log_tz)
+
 
 
 
@@ -456,6 +470,10 @@ if __name__ == "__main__":
                 log.info("No duplicates after ignoring optimized versions for : %r", item.title, extra=log_tz)
                 print("No duplicates after ignoring optimized versions for : %r" % item.title)
 
+    # Define global variables for stats
+    total_deleted_files = 0
+    total_deleted_size = 0
+
     # process processed items
     time.sleep(5)
     for item, parts in process_later.items():
@@ -479,7 +497,7 @@ if __name__ == "__main__":
                     else:
                         log.info("Removing unavailable media : %r - %r (size: %r)", media_id, part_info['file_short'], part_info['file_size'], extra=log_tz)
                         print("Removing unavailable media : %r - %r (size: %r)" % (media_id, part_info['file_short'], part_info['file_size']))
-                    delete_item(part_info['show_key'], media_id)
+                    delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                     write_decision(removed=part_info)
                     time.sleep(2)
 
@@ -507,7 +525,7 @@ if __name__ == "__main__":
                             else:
                                 log.info("Removing extra TS media : %r - %r", media_id, part_info['file_short'], extra=log_tz)
                                 print("Removing extra TS media : %r - %r" % (media_id, part_info['file_short']))
-                            delete_item(part_info['show_key'], media_id)
+                            delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                             write_decision(removed=part_info)
                             time.sleep(2)
                         else:
@@ -557,7 +575,7 @@ if __name__ == "__main__":
                         else:
                             #print("\tRemoving : %r" % media_id)
                             print("\tRemoving (%d): %r" % (part_info['score'], media_id))
-                            delete_item(part_info['show_key'], media_id)
+                            delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                             write_decision(removed=part_info)
                             time.sleep(2)
                 elif keep_item.lower() == 's' or int(keep_item) == 0:
@@ -601,8 +619,16 @@ if __name__ == "__main__":
                                 print("☑️%s🔺 %s 🆔%d" % (formatedScore, part_info['file_short'], media_id))
                             else:
                                 print("❌%s🔺 %s 🆔%d" % (formatedScore, part_info['file_short'], media_id))
-                                delete_item(part_info['show_key'], media_id)
+                                delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                                 write_decision(removed=part_info)
                                 time.sleep(2)
                 else:
                     print("Unable to determine best media item to keep for %r", item)
+    
+    # Print/log stats 
+    total_deleted_size_gb = total_deleted_size / (1024 * 1024 * 1024)
+    print("Total Deleted Files:", total_deleted_files)
+    log.info("Total Deleted Files: %r", total_deleted_files, extra=log_tz)
+    print("Total Deleted Size (GB): {:.2f}".format(total_deleted_size_gb))
+    log.info("Total Deleted Size (GB): {:.2f}".format(total_deleted_size_gb), extra=log_tz)
+
