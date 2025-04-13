@@ -349,12 +349,47 @@ def write_decision(title=None, keeping=None, removed=None):
     return
 
 
-def should_skip(files):
+def is_skip_list(files):
     """
     Determine whether any file path in the given list
     matches any item in the skip list defined in config.
     """
     return any(skip_item in str(files_item) for files_item, skip_item in itertools.product(files, cfg['SKIP_LIST']))
+
+def should_skip_deletion(media_id, part_info, context, check_file_size=True):
+    """
+    Checks if a media item should be skipped from deletion based on:
+    - File size exists (even if Plex reports as unavailable)
+    - File path matches an item in SKIP_LIST
+    
+    Logs the reason for skipping based on the provided context.
+
+    Args:
+        media_id (str): The media item ID for logging
+        part_info (dict): The parsed metadata for the part
+        context (str): A label for which section this check is from (e.g. 'UNAVAILABLE', 'EXTRA_TS')
+        check_file_size (bool): If True, skip if file_size > 0
+
+    Returns:
+        bool: True if the item should be skipped
+    """
+    # Check if size suggests it's still valid
+    if check_file_size and part_info['file_size'] > 0:
+        log.info(f"[{context}] Skipping removal due to non-zero file size (%r): %r - %r",
+                 part_info['file_size'], media_id, part_info['file_short'], extra=log_tz)
+        print(f"\t[{context}] Skipping removal due to file size > 0: %r - %r" %
+              (media_id, part_info['file_short']))
+        return True
+
+    # Check if file path is in skip list
+    if should_skip(part_info['file']):
+        log.info(f"[{context}] Skipping removal per SKIP_LIST: %r - %r",
+                 media_id, part_info['file_short'], extra=log_tz)
+        print(f"\t[{context}] Skipping removal per SKIP_LIST: %r - %r" %
+              (media_id, part_info['file_short']))
+        return True
+
+    return False
 
 
 def millis_to_string(millis):
@@ -608,20 +643,7 @@ if __name__ == "__main__":
                         title_decided = True
                         write_decision(title=item)
 
-                    # Even if Plex says it's unavailable, check file_size as a safeguard. Skip if a file size exists.
-                    if part_info['file_size'] > 0:
-                        log.info("\tSkipping removal per file size (%r) : %r - %r",
-                                 part_info['file_size'], media_id, part_info['file_short'], extra=log_tz)
-                        print("\tSkipping removal per file size (%r) : %r - %r" %
-                              (part_info['file_size'], media_id, part_info['file_short']))
-                        continue
-
-                    # Skip if path is in skip list
-                    if should_skip(part_info['file']):
-                        log.info("\tSkipping removal per SKIP_LIST : %r - %r",
-                                 media_id, part_info['file_short'], extra=log_tz)
-                        print("\tSkipping removal per SKIP_LIST : %r - %r" %
-                              (media_id, part_info['file_short']))
+                    if should_skip_deletion(media_id, part_info, context="UNAVAILABLE"):
                         continue
                     
                     # Delete the media part
@@ -655,12 +677,7 @@ if __name__ == "__main__":
                                   % (part_info['file_short'], media_id, item))
                             continue
 
-                        # Skip if path is in skip list
-                        if should_skip(part_info['file']):
-                            log.info("\tSkipping removal per SKIP_LIST : %r - %r",
-                                     media_id, part_info['file_short'], extra=log_tz)
-                            print("\tSkipping removal per SKIP_LIST : %r - %r" %
-                                  (media_id, part_info['file_short']))
+                        if should_skip_deletion(media_id, part_info, context="EXTRA_TS", check_file_size=False):
                             continue
 
                         # Delete the TS files
@@ -752,7 +769,7 @@ if __name__ == "__main__":
                             write_decision(keeping=part_info)
                         else:
                             print("\tRemoving : %r - %r" % (media_id, part_info['file']))
-                            if should_skip(part_info['file']):
+                            if is_skip_list(part_info['file']):
                                 print("☑️%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
                             else:
                                 print("❌%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
