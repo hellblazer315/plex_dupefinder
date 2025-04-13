@@ -211,38 +211,15 @@ def get_media_info(item):
         'file_size': 0
     }
 
-    # Attempt to get attributes with fallbacks
-    # Get ID
-    try: info['id'] = item.id
-    except AttributeError: log.debug("Media item has no id", extra=log_tz)
-    
-    # Get Bitrate
-    try: info['video_bitrate'] = item.bitrate if item.bitrate else 0
-    except AttributeError: log.debug("Media item has no bitrate", extra=log_tz)
-
-    # Get Video Codec
-    try: info['video_codec'] = item.videoCodec if item.videoCodec else 'Unknown'
-    except AttributeError: log.debug("Media item has no videoCodec", extra=log_tz)
-
-    # Get Video Resolution
-    try: info['video_resolution'] = item.videoResolution if item.videoResolution else 'Unknown'
-    except AttributeError: log.debug("Media item has no videoResolution", extra=log_tz)
-
-    # Get Video Height
-    try: info['video_height'] = item.height if item.height else 0
-    except AttributeError: log.debug("Media item has no height", extra=log_tz)
-
-    # Get Video Width
-    try: info['video_width'] = item.width if item.width else 0
-    except AttributeError: log.debug("Media item has no width", extra=log_tz)
-
-    # Get Video Duration
-    try: info['video_duration'] = item.duration if item.duration else 0
-    except AttributeError: log.debug("Media item has no duration", extra=log_tz)
-
-    # Get Audio Codec
-    try: info['audio_codec'] = item.audioCodec if item.audioCodec else 'Unknown'
-    except AttributeError: log.debug("Media item has no audioCodec", extra=log_tz)
+    # Retrieve attributes with logging & fallback
+    info['id'] = safe_getattr(item, 'id', default='Unknown', label="Media item has no id")
+    info['video_bitrate'] = safe_getattr(item, 'bitrate', default=0, label="Media item has no bitrate")
+    info['video_codec'] = safe_getattr(item, 'videoCodec', default='Unknown', label="Media item has no videoCodec")
+    info['video_resolution'] = safe_getattr(item, 'videoResolution', default='Unknown', label="Media item has no videoResolution")
+    info['video_height'] = safe_getattr(item, 'height', default=0, label="Media item has no height")
+    info['video_width'] = safe_getattr(item, 'width', default=0, label="Media item has no width")
+    info['video_duration'] = safe_getattr(item, 'duration', default=0, label="Media item has no duration")
+    info['audio_codec'] = safe_getattr(item, 'audioCodec', default='Unknown', label="Media item has no audioCodec")
 
     # Get Audio Channels
     try:
@@ -330,6 +307,29 @@ def delete_item(show_key, media_id, file_size, file_path):
 
 decision_filename = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'decisions.log')
 
+def safe_getattr(obj, attr, default=None, label=None):
+    """
+    Safely get an attribute from an object with fallback.
+    Logs a debug message if the attribute is missing.
+
+    Args:
+        obj: The object to fetch from
+        attr (str): Attribute name
+        default: Value to return if not found
+        label (str): Optional log label (e.g. "Media item has no bitrate")
+
+    Returns:
+        The attribute value or the default
+    """
+    try:
+        return getattr(obj, attr)
+    except AttributeError:
+        if label:
+            log.debug(label, extra=log_tz)
+        else:
+            log.debug("Missing attribute: %s", attr, extra=log_tz)
+        return default
+
 
 def write_decision(title=None, keeping=None, removed=None):
     """
@@ -355,6 +355,7 @@ def is_skip_list(files):
     matches any item in the skip list defined in config.
     """
     return any(skip_item in str(files_item) for files_item, skip_item in itertools.product(files, cfg['SKIP_LIST']))
+
 
 def should_skip_deletion(media_id, part_info, context, check_file_size=True):
     """
