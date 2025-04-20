@@ -78,10 +78,10 @@ Once the Docker image is built, you can run it as a Docker container using the f
 
    - Replace `plex_dupefinder/app` in the APP_PATH variable with the absolute path to the `app/` directory on your system.
 
-2. If running with `SKIP_OTHER_DUPES=false`, add the `-i` option to the `docker run` command:
+2. If running with `SKIP_OTHER_DUPES=false`, or if it is a first run (you do not yet have a config.json) add the `-it` option to the `docker run` command:
    ```
    APP_PATH='plex_dupefinder/app'
-   docker run -i --rm --name plex_dupefinder --env-file $APP_PATH/docker.env -v $APP_PATH:/app plex_dupefinder
+   docker run -it --rm --name plex_dupefinder --env-file $APP_PATH/docker.env -v $APP_PATH:/app plex_dupefinder
    ```
 
-   The `-i` option ensures interactive mode, allowing input to be sent to the container.
+   The `-it` option ensures interactive mode, allowing input to be sent to the container.

@@ -14,10 +14,30 @@ from getpass import getpass
 config_path = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'config.json')
 
 base_config = {
-    'DRY_RUN': False,  # Simulate deletions without applying them
-    'PLEX_SERVER': 'https://plex.your-server.com',  # Plex server URL (https/http)
-    'PLEX_TOKEN': '',  # Plex API token (fetched via login or manually set)
-    'PLEX_LIBRARIES': {},  # Plex libraries to scan (e.g., ['Movies', 'TV'])
+    'RUNTIME': {  # Overarching category for settings that affect the runtime
+        'DRY_RUN': False,  # Simulate deletions without applying them
+        'AUTO_DELETE': False,  # Whether to auto-delete lowest scored dupes
+        'FIND_DUPLICATE_FILEPATHS_ONLY': False,  # Only mark duplicates with identical filepaths
+        'SKIP_OTHER_DUPES': False,  # Skip interactive/automatic deletion of other duplicates
+        'FIND_UNAVAILABLE': False,  # Try to remove missing media files from Plex
+        'FIND_EXTRA_TS': False,  # Remove .ts files when other copies exist
+        'SKIP_PLEX_VERSIONS_FOLDER': True,  # Skip Plex Versions folder contents
+        'LOGGING_TIMEZONE': 'UTC'  # Timezone used for logging timestamps
+    },
+    'PLEX': {  # Overarching category for Plex server settings
+        'LIBRARIES': {},  # Plex libraries to scan (e.g., ['Movies', 'TV'])
+        'SERVER_URL': 'https://plex.your-server.com',  # Plex server URL (https/http)
+        'AUTH_TOKEN': '',  # Plex API token (fetched via login or manually set)
+    },
+    'SCORING': {  # Overarching category for enabling/disabling various scoring options
+        'VIDEO_HEIGHT_MULTIPLIER': 2,  # Used in scoring: height (in pixels) * multiplier
+        'SCORE_FILESIZE': True,  # Include file size in scoring
+        'SCORE_AUDIOCHANNELS': True,  # Include audio channel count in scoring
+        'SCORE_VIDEOBITRATE': {  # Bitrate score multiplier
+            'enabled': True,
+            'multiplier': 2
+        },
+    },
     'AUDIO_CODEC_SCORES': {  # Custom audio codec scoring
         'Unknown': 0, 'wmapro': 200, 'mp2': 500, 'mp3': 1000, 'ac3': 1000, 'dca': 2000, 'pcm': 2500, 
         'flac': 2500, 'dca-ma': 4000, 'truehd': 4500, 'aac': 1000, 'eac3': 1250},
@@ -28,20 +48,7 @@ base_config = {
         'Unknown': 0, '4k': 20000, '1080': 10000, '720': 5000, '480': 3000, 'sd': 1000},
     'FILENAME_SCORES': {},  # Keyword pattern scoring (e.g. *Remux*)
     'SKIP_LIST': [],  # Filenames or folders to always skip
-    'SCORE_FILESIZE': True,  # Include file size in scoring
-    'SCORE_AUDIOCHANNELS': True,  # Include audio channel count in scoring
-    'SCORE_VIDEOBITRATE': {  # Bitrate score multiplier
-        'enabled': True,
-        'multiplier': 2
-    },
-    'VIDEO_HEIGHT_MULTIPLIER': 2,  # Used in scoring: height * multiplier
-    'AUTO_DELETE': False,  # Whether to auto-delete lowest scored dupes
-    'SKIP_OTHER_DUPES': False,  # Skip interactive/automatic deletion of other duplicates
-    'SKIP_PLEX_VERSIONS_FOLDER': True,  # Skip Plex Versions folder contents
-    'FIND_UNAVAILABLE': False,  # Try to remove missing media files from Plex
-    'FIND_EXTRA_TS': False,  # Remove .ts files when other copies exist
-    'FIND_DUPLICATE_FILEPATHS_ONLY': False,  # Only mark duplicates with identical filepaths
-    'LOGGING_TIMEZONE': 'UTC'  # Timezone used for logging timestamps
+
 }
 cfg = None
 
@@ -58,14 +65,14 @@ def prefilled_default_config(configs):
     default_config = base_config.copy()
 
     # Set the token and server url
-    default_config['PLEX_SERVER'] = configs['url']
-    default_config['PLEX_TOKEN'] = configs['token']
+    default_config['PLEX']['SERVER_URL'] = configs['url']
+    default_config['PLEX']['AUTH_TOKEN'] = configs['token']
 
     # Set AUTO_DELETE config option
-    default_config['AUTO_DELETE'] = configs['auto_delete']
+    default_config['RUNTIME']['AUTO_DELETE'] = configs['auto_delete']
 
     # Set Sections/Libraries
-    default_config['PLEX_LIBRARIES'] = [
+    default_config['PLEX']['LIBRARIES'] = [
         'Movies',
         'TV'
     ]
