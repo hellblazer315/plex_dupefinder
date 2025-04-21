@@ -27,6 +27,11 @@ Follow these steps to set up the folder structure and retrieve your Python appli
    git clone https://github.com/hellblazer315/plex_dupefinder.git app
    ```
 
+   If you would like to use a different branch, instead use:
+   ```
+   git clone -b {branch name} https://github.com/hellblazer315/plex_dupefinder.git app
+   ```
+
 This command clones your repository and creates the `/app` folder containing all files and directories from the git checkout, including the Dockerfile.
 
 ## Building the Docker Image
@@ -78,10 +83,12 @@ Once the Docker image is built, you can run it as a Docker container using the f
 
    - Replace `plex_dupefinder/app` in the APP_PATH variable with the absolute path to the `app/` directory on your system.
 
-2. If running with `SKIP_OTHER_DUPES=false`, add the `-i` option to the `docker run` command:
+2. If running with `SKIP_OTHER_DUPES=false`,`AUTO_DELETE=false`, or if it is a first run (you do not yet have a config.json) add the `-it` option to the `docker run` command:
    ```
    APP_PATH='plex_dupefinder/app'
-   docker run -i --rm --name plex_dupefinder --env-file $APP_PATH/docker.env -v $APP_PATH:/app plex_dupefinder
+   docker run -it --rm --name plex_dupefinder --env-file $APP_PATH/docker.env -v $APP_PATH:/app plex_dupefinder
    ```
 
-   The `-i` option ensures interactive mode, allowing input to be sent to the container.
+   The `-it` option ensures interactive mode, allowing input to be sent to the container.
+
+3. If there is a need for the container to run through a specific network (such as the host network) for the URL to work, add `--net={networkname}` 

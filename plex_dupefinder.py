@@ -35,7 +35,7 @@ import requests
 
 
 # Set up timezone from config
-tz_str=cfg['LOGGING_TIMEZONE']
+tz_str=cfg['RUNTIME']['LOGGING_TIMEZONE']
 tz=timezone(tz_str)
 tz_abbr = datetime.now(tz).strftime('%Z')
 utc_offset = int(datetime.now(tz).strftime('%z')) // 100
@@ -63,10 +63,10 @@ log = logging.getLogger("Plex_Dupefinder")
 
 # Configure Plex server object using URL and token from config
 try:
-    plex = PlexServer(cfg['PLEX_SERVER'], cfg['PLEX_TOKEN'])
+    plex = PlexServer(cfg['PLEX']['SERVER_URL'], cfg['PLEX']['AUTH_TOKEN'])
 except:
-    log.exception("Exception connecting to server %r with token %r", cfg['PLEX_SERVER'], cfg['PLEX_TOKEN'])
-    print(f"Exception connecting to {cfg['PLEX_SERVER']} with token: {cfg['PLEX_TOKEN']}")
+    log.exception("Exception connecting to server %r with token %r", cfg['PLEX']['SERVER_URL'], cfg['PLEX']['AUTH_TOKEN'])
+    print(f"Exception connecting to {cfg['PLEX']['SERVER_URL']} with token: {cfg['PLEX']['AUTH_TOKEN']}")
     exit(1)
 
 ############################################################
@@ -86,7 +86,7 @@ def get_dupes(plex_section_name):
     dupe_search_results = plex.library.section(plex_section_name).search(duplicate=True, libtype=sec_type)
 
     dupe_search_results_new = dupe_search_results.copy()
-    if cfg['FIND_DUPLICATE_FILEPATHS_ONLY']:
+    if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
         for dupe in dupe_search_results:
             # Only keep items where all locations match the first one
             if any(x != dupe.locations[0] for x in dupe.locations):
@@ -146,10 +146,10 @@ def get_score(media_info):
                 log.debug("Added %d to score for match filename_keyword %s", int(keyword_score), filename_keyword, extra=log_tz)
                 
     # Score based on video bitrate (if enabled)
-    if cfg['SCORE_VIDEOBITRATE']['enabled']:
-        score += int(media_info['video_bitrate']) * cfg['SCORE_VIDEOBITRATE']['multiplier']
+    if cfg['SCORING']['SCORE_VIDEOBITRATE']['enabled']:
+        score += int(media_info['video_bitrate']) * cfg['SCORING']['SCORE_VIDEOBITRATE']['multiplier']
         log.debug("Added %d to score for video bitrate being %r",
-                  int(media_info['video_bitrate']) * cfg['SCORE_VIDEOBITRATE']['multiplier'],
+                  int(media_info['video_bitrate']) * cfg['SCORING']['SCORE_VIDEOBITRATE']['multiplier'],
                   str(media_info['video_bitrate']), extra=log_tz)
         
     # Score based on video duration
@@ -165,20 +165,20 @@ def get_score(media_info):
               str(media_info['video_width']), extra=log_tz)
 
     # Score based on video resolution height
-    score += int(media_info['video_height']) * cfg['VIDEO_HEIGHT_MULTIPLIER']
+    score += int(media_info['video_height']) * cfg['SCORING']['VIDEO_HEIGHT_MULTIPLIER']
     log.debug("Added %d to score for video height being %r",
-              int(media_info['video_height']) * cfg['VIDEO_HEIGHT_MULTIPLIER'],
+              int(media_info['video_height']) * cfg['SCORING']['VIDEO_HEIGHT_MULTIPLIER'],
               str(media_info['video_height']), extra=log_tz)
 
     # Score based on number of audio channels (if enabled)
-    if cfg['SCORE_AUDIOCHANNELS']:
+    if cfg['SCORING']['SCORE_AUDIOCHANNELS']:
         score += int(media_info['audio_channels']) * 1000
         log.debug("Added %d to score for audio channels being %r",
                   int(media_info['audio_channels']) * 1000,
                   str(media_info['audio_channels']), extra=log_tz)
 
     # Score based on file size (if enabled)
-    if cfg['SCORE_FILESIZE']:
+    if cfg['SCORING']['SCORE_FILESIZE']:
         score += int(media_info['file_size']) / 100000
         log.debug("Added %d to score for total file size being %r",
                   int(media_info['file_size']) / 100000,
@@ -245,10 +245,10 @@ def get_media_info(item):
         info['file_short'].append(shortenedFilePath)
         info['file_size'] += part.size if part.size else 0
 
-        if cfg['FIND_UNAVAILABLE'] and not part.exists:
+        if cfg['RUNTIME']['FIND_UNAVAILABLE'] and not part.exists:
             info['file_exists'] = False
 
-        if cfg['FIND_EXTRA_TS']:
+        if cfg['RUNTIME']['FIND_EXTRA_TS']:
             name, ext = os.path.splitext(part.file)
             ext = ext.lower()
             if ext in info['file_exts']:
@@ -265,13 +265,12 @@ def delete_item(show_key, media_id, file_size, file_path):
     Honors DRY_RUN config for previewing deletions.
     Updates global counters for reporting.
     """
-    global total_deleted_files, total_deleted_size
 
     # Use local helper to convert bytes into a human-readable string
     file_size_str = bytes_to_string(file_size)
 
     # Construct the URL used to send the DELETE request
-    delete_url = urljoin(cfg['PLEX_SERVER'], '%s/media/%d' % (show_key, media_id))
+    delete_url = urljoin(cfg['PLEX']['SERVER_URL'], '%s/media/%d' % (show_key, media_id))
     log.debug("Sending DELETE request to %r" % delete_url, extra=log_tz)
 
     # Define success log message formatting
@@ -281,16 +280,17 @@ def delete_item(show_key, media_id, file_size, file_path):
 
     # Track Deletions for Summary
     def track_deletion(file_size):
+        global total_deleted_files, total_deleted_size
         total_deleted_files += 1
         total_deleted_size += file_size
     
-    if cfg['DRY_RUN']:
+    if cfg['RUNTIME']['DRY_RUN']:
         # Simulate deletion without sending API request
         track_deletion(file_size)
         log_deletion_result("Would've deleted media item (DRY RUN):", "\t\tDRY RUN -- ✨")
     else:
         # Perform actual deletion
-        response = requests.delete(delete_url, headers={'X-Plex-Token': cfg['PLEX_TOKEN']})
+        response = requests.delete(delete_url, headers={'X-Plex-Token': cfg['PLEX']['AUTH_TOKEN']})
         if response.status_code == 200:
             track_deletion(file_size)
             log_deletion_result("Successfully deleted", "✨")
@@ -466,7 +466,7 @@ def build_tabulated(parts, items):
     """
     
     headers = ['choice', 'score', 'id', 'file', 'size', 'duration', 'bitrate', 'resolution', 'codecs']
-    if cfg['FIND_DUPLICATE_FILEPATHS_ONLY']:
+    if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
         headers.remove('score')
 
     part_data = []
@@ -538,15 +538,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
     # Override config values if arguments passed
     if args.dry_run:
-        cfg['DRY_RUN'] = True
+        cfg['RUNTIME']['DRY_RUN'] = True
     if args.skip_other_dupes:
-        cfg['SKIP_OTHER_DUPES'] = True
+        cfg['RUNTIME']['SKIP_OTHER_DUPES'] = True
 
     process_later = {} # Queue of media items to decide on after scanning
 
     # Process Sections/Libraries
     print("Finding dupes...")
-    for section in cfg['PLEX_LIBRARIES']:
+    for section in cfg['PLEX']['LIBRARIES']:
         dupes = get_dupes(section)
         print("Found %d dupes for section %r" % (len(dupes), section))
         # Loop over duplicates in section
@@ -566,7 +566,7 @@ if __name__ == "__main__":
             log.info("Processing: %r", title, extra=log_tz)
 
             # If configured, revalidate media file existence and log the latest status for debugging
-            if cfg['FIND_UNAVAILABLE']:
+            if cfg['RUNTIME']['FIND_UNAVAILABLE']:
                 if all(part.exists for media in item.media for part in media.parts):
                     # If all files are already marked as available, log it and move on
                     log.debug("All media is available for %s", item.title, extra=log_tz)
@@ -590,7 +590,7 @@ if __name__ == "__main__":
                     log.info("ID: %r (%r) -- Skipping optimized version", part.id, part_info['file_short'], extra=log_tz)
                     print("ID: %r (%r) -- Skipping optimized version" % (part.id, part_info['file_short']))
                     continue
-                elif cfg['SKIP_PLEX_VERSIONS_FOLDER'] and any("\\Plex Versions\\" in file_path for file_path in part_info['file']):
+                elif cfg['RUNTIME']['SKIP_PLEX_VERSIONS_FOLDER'] and any("\\Plex Versions\\" in file_path for file_path in part_info['file']):
                     # Skip is "isOptimizedVersion" is not set but file is in a "\\Plex Versions\\" folder
                     log.info("ID: %r (%r) -- Skipping Plex Versions; isOptimizedVersion = %r", part.id, part_info['file_short'], part.isOptimizedVersion, extra=log_tz)
                     print("ID: %r (%r) -- Skipping Plex Versions; isOptimizedVersion = %r" % (part.id, part_info['file_short'], part.isOptimizedVersion))
@@ -600,7 +600,7 @@ if __name__ == "__main__":
                 log.debug("ID: %r (%r) -- Including; isOptimizedVersion = %r", part.id, part_info['file_short'], part.isOptimizedVersion, extra=log_tz)
                                 
                 # Score media if not just matching file paths
-                if not cfg['FIND_DUPLICATE_FILEPATHS_ONLY']:
+                if not cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
                     part_info['score'] = get_score(part_info)
                     
                 # Store the Plex key needed for deletion
@@ -636,7 +636,7 @@ if __name__ == "__main__":
     # time.sleep(5)
     for item, parts in process_later.items():
         # Remove all unavailable media that are not in SKIP_LIST
-        if cfg['FIND_UNAVAILABLE']:
+        if cfg['RUNTIME']['FIND_UNAVAILABLE']:
             title_decided = False
             for media_id, part_info in parts.items():
                 if not part_info['file_exists']:
@@ -657,7 +657,7 @@ if __name__ == "__main__":
                     time.sleep(2)
 
         # Additional cleanup logic for .ts files (if configured)
-        if cfg['FIND_EXTRA_TS']:
+        if cfg['RUNTIME']['FIND_EXTRA_TS']:
             title_decided = False
             file_exts = {}
             for media_id, part_info in parts.items():
@@ -688,7 +688,7 @@ if __name__ == "__main__":
                         write_decision(removed=part_info)
                         time.sleep(2)
 
-        if not cfg['SKIP_OTHER_DUPES']:
+        if not cfg['RUNTIME']['SKIP_OTHER_DUPES']:
 
             ############################################################
             # DUPLICATE RESOLUTION
@@ -696,12 +696,12 @@ if __name__ == "__main__":
             # Based on config: interactive prompt or auto-delete
             ############################################################
 
-            if not cfg['AUTO_DELETE']:
+            if not cfg['RUNTIME']['AUTO_DELETE']:
                 # Interactive/Manual Mode
                 partz = {}
                 print("\nWhich media item do you wish to keep for %r ?\n" % item)
 
-                if cfg['FIND_DUPLICATE_FILEPATHS_ONLY']:
+                if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
                     sort_key = "id"
                     sort_order_reverse = False
                 else:
@@ -747,7 +747,7 @@ if __name__ == "__main__":
                 keep_id = None
 
                 # Determine best item
-                if cfg['FIND_DUPLICATE_FILEPATHS_ONLY']:
+                if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
                     # Decide best item by lowest ID (file path match)
                     for media_id, part_info in parts.items():
                         if keep_score == 0 or int(part_info['id']) < keep_score:

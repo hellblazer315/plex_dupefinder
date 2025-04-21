@@ -53,3 +53,6 @@ pip-selfcheck.json
 
 # Venv
 venv/
+
+# Exceptions
+!config_sample.json

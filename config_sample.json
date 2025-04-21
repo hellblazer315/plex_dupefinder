@@ -1,5 +1,31 @@
 {
-  "LOGGING_TIMEZONE": "UTC",
+  "RUNTIME":{
+    "DRY_RUN":false,
+    "AUTO_DELETE": false,
+    "FIND_DUPLICATE_FILEPATHS_ONLY": false,
+    "SKIP_OTHER_DUPES": false,
+    "FIND_UNAVAILABLE": false,
+    "FIND_EXTRA_TS": false,
+    "SKIP_PLEX_VERSIONS_FOLDER": true,
+    "LOGGING_TIMEZONE": "UTC"
+  },
+  "PLEX":{
+    "LIBRARIES": [
+      "Movies",
+      "TV"
+    ],
+    "SERVER_URL": "https://plex.your-server.com",
+    "AUTH_TOKEN": ""
+  },
+  "SCORING":{
+    "VIDEO_HEIGHT_MULTIPLIER": 2,
+    "SCORE_AUDIOCHANNELS": true,
+    "SCORE_FILESIZE": true,
+    "SCORE_VIDEOBITRATE": {
+      "enabled": true,
+      "multiplier": 2
+    }
+  },
   "AUDIO_CODEC_SCORES": {
     "Unknown": 0,
     "aac": 1000,
@@ -14,8 +40,6 @@
     "truehd": 4500,
     "wmapro": 200
   },
-  "AUTO_DELETE": false,
-  "FIND_DUPLICATE_FILEPATHS_ONLY": false,
   "FILENAME_SCORES": {
     "*.avi": -1000,
     "*.ts": -1000,
@@ -35,21 +59,7 @@
     "*WEB*TROLLHD*": 2500,
     "*WEB*VISUM*": 5000,
     "*dvd*": -1000
-  },
-  "PLEX_LIBRARIES": [
-    "Movies",
-    "TV"
-  ],
-  "PLEX_SERVER": "https://plex.your-server.com",
-  "PLEX_TOKEN": "",
-  "SCORE_FILESIZE": true,
-  "SCORE_VIDEOBITRATE": {
-    "enabled": true,
-    "multiplier": 2
-  },
-  "SCORE_AUDIOCHANNELS": true,
-  "VIDEO_HEIGHT_MULTIPLIER": 2,
-  "SKIP_LIST": [],
+  },  
   "VIDEO_CODEC_SCORES": {
     "Unknown": 0,
     "h264": 10000,
@@ -73,5 +83,6 @@
     "720": 5000,
     "Unknown": 0,
     "sd": 1000
-  }
+  },
+  "SKIP_LIST": []
 }
