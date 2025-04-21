@@ -265,7 +265,6 @@ def delete_item(show_key, media_id, file_size, file_path):
     Honors DRY_RUN config for previewing deletions.
     Updates global counters for reporting.
     """
-    global total_deleted_files, total_deleted_size
 
     # Use local helper to convert bytes into a human-readable string
     file_size_str = bytes_to_string(file_size)
@@ -281,6 +280,7 @@ def delete_item(show_key, media_id, file_size, file_path):
 
     # Track Deletions for Summary
     def track_deletion(file_size):
+        global total_deleted_files, total_deleted_size
         total_deleted_files += 1
         total_deleted_size += file_size
     
