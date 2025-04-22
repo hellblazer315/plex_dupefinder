@@ -24,6 +24,11 @@
     "SCORE_VIDEOBITRATE": {
       "enabled": true,
       "multiplier": 2
+    },
+    "RADARR": {
+      "enabled": false,
+      "url": "http://localhost:7878",
+      "api_key": "abc123"
     }
   },
   "AUDIO_CODEC_SCORES": {

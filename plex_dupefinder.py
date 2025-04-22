@@ -208,7 +208,9 @@ def get_media_info(item):
         'multipart': False,
         'file_exists': True,  # Used with FIND_UNAVAILABLE
         'file_exts': {},      # Used with FIND_EXTRA_TS; It is an array whose keys are the file extensions and whose values are the count of media with that file extension
-        'file_size': 0
+        'file_size': 0,
+        'media_type': 'Unknown',
+        'tmdb_id': 0
     }
 
     # Retrieve attributes with logging & fallback
@@ -220,6 +222,14 @@ def get_media_info(item):
     info['video_width'] = safe_getattr(item, 'width', default=0, label="Media item has no width")
     info['video_duration'] = safe_getattr(item, 'duration', default=0, label="Media item has no duration")
     info['audio_codec'] = safe_getattr(item, 'audioCodec', default='Unknown', label="Media item has no audioCodec")
+    info['media_type'] = safe_getattr(item, 'type', default='Unknown', label="Media item has no type")
+
+    guid = safe_getattr(item, 'guid', default=None, label="Media item has no guid")
+    if guid and guid.startswith("tmdb://"):
+        try:
+            info['tmdb_id'] = int(guid.replace("tmdb://", "").split("?")[0])
+        except Exception:
+            log.debug(f"Unable to parse TMDB ID from guid: {guid}", extra=log_tz)
 
     # Get Audio Channels
     try:
@@ -480,7 +490,10 @@ def build_tabulated(parts, items):
             elif 'score' in k:
                 tmp.append(str(format(parts[item_id][k], ',d')))
             elif 'id' in k:
-                tmp.append(parts[item_id][k])
+                id_val = str(parts[item_id][k])
+                if item_id == arr_override_id and cfg['SCORING']['RADARR']['enabled']:
+                    id_val += " ⭐"
+                tmp.append(id_val)
             elif 'file' in k:
                 tmp.append(parts[item_id]['file_short'])
             elif 'size' in k:
@@ -496,6 +509,41 @@ def build_tabulated(parts, items):
         part_data.append(tmp)
 
     return headers, part_data
+
+def get_radarr_file(tmdb_id):
+    """Fetch the file name from Radarr using the TMDB ID."""
+    radarr_url = cfg['SCORING']['RADARR']['url']
+    api_key = cfg['SCORING']['RADARR']['api_key']
+    
+    headers = {"X-Api-Key": api_key}
+    params = {"tmdbId": tmdb_id}
+    
+    response = requests.get(f"{radarr_url}/api/v3/movie", headers=headers, params=params)
+    if response.status_code == 200:
+        movies = response.json()
+        if movies:
+            movie = movies[0]  # Assume the first match is correct
+            if "movieFile" in movie and "relativePath" in movie["movieFile"]:
+                return movie["movieFile"]["relativePath"]  # Extract just the filename
+    return None
+
+def get_arr_override_id(parts):
+    """
+    Return the media_id of the part matching a *arr (currently Radarr) preferred file.
+    Only used if *arr integration is enabled in config.
+    """
+    # Radarr logic for movies
+    if cfg['SCORING'].get('RADARR', {}).get('enabled', False):
+        for media_id, part_info in parts.items():
+            if part_info.get('media_type') == 'movie':
+                tmdb_id = part_info.get('tmdb_id')
+                if tmdb_id:
+                    radarr_file = get_radarr_file(tmdb_id)
+                    if radarr_file and os.path.basename(part_info['file'][0]) == radarr_file:
+                        log.info(f"Radarr override matched file: {radarr_file}", extra=log_tz)
+                        return media_id
+    # Placeholder for future Sonarr support
+    return None
 
 
 ############################################################
@@ -719,24 +767,38 @@ if __name__ == "__main__":
                     media_items[pos] = media_id
                     partz[media_id] = part_info
 
+                arr_override_id = get_arr_override_id(parts)
                 headers, data = build_tabulated(partz, media_items)
                 print(tabulate(data, headers=headers))
 
                 # Prompt user for selection
-                keep_item = input("\nChoose item to keep (0 or s = skip | 1 or b = best): ")
-                if (keep_item.lower() != 's') and (keep_item.lower() == 'b' or 0 < int(keep_item) <= len(media_items)):
+                prompt_msg = "\nChoose item to keep (0 or s = skip | 1 or b = best"
+                if arr_override_id and cfg['SCORING']['RADARR']['enabled']:
+                    prompt_msg += " | r = *arr preferred"
+                prompt_msg += "): "
+                keep_item = input(prompt_msg)
+                if keep_item.lower() == 'r' and arr_override_id:
+                    # Use *arr preferred if "r" input and a *arr override exists
+                    keep_id = arr_override_id
+                    print(f"\tKeeping (*arr preferred): {keep_id}")
+                    write_decision(title=item, keeping=parts[keep_id])
+                elif (keep_item.lower() != 's') and (keep_item.lower() == 'b' or 0 < int(keep_item) <= len(media_items)):
+                    # Process if either "b" or a valid 'id' input
                     write_decision(title=item)
                     for media_id, part_info in parts.items():
                         if (keep_item.lower() == 'b' and best_item == part_info) or \
-                           (keep_item.lower() != 'b' and media_id == media_items[int(keep_item)]):
+                        (keep_item.lower() != 'b' and media_id == media_items[int(keep_item)]):
+                            # Keep best item if "b" input
                             print("\tKeeping (%d): %r" % (part_info['score'], media_id))
                             write_decision(keeping=part_info)
                         else:
+                            # Remove selection if specific 'id' input
                             print("\tRemoving (%d): %r" % (part_info['score'], media_id))
                             delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                             write_decision(removed=part_info)
                             time.sleep(2)
                 elif keep_item.lower() == 's' or int(keep_item) == 0:
+                    # Skip item if "s" input
                     print("Skipping deletion(s) for %r" % item)
                 else:
                     print("Unexpected response, skipping deletion(s) for %r" % item)
@@ -754,11 +816,21 @@ if __name__ == "__main__":
                             keep_score = int(part_info['id'])
                             keep_id = media_id
                 else:
-                    # Decide best item by highest score
-                    for media_id, part_info in parts.items():
-                        if int(part_info['score']) > keep_score:
-                            keep_score = part_info['score']
-                            keep_id = media_id
+                    # Decide best item by Radarr/Sonarr
+                    arr_override_id = get_arr_override_id(parts)
+                    if arr_override_id:
+                        keep_id = arr_override_id
+                        log.info("Auto-deleting using *arr override (Radarr): %s", parts[keep_id]['file_short'], extra=log_tz)
+                        print(f"🛑 Auto-selected using Radarr override: {parts[keep_id]['file_short']}")
+                    elif cfg['SCORING']['RADARR']['enabled']:
+                        log.info("No *arr override found, using score-based selection", extra=log_tz)
+                    
+                    # Decide best item by score if override not used or found
+                    if not keep_id:
+                        for media_id, part_info in parts.items():
+                            if int(part_info['score']) > keep_score:
+                                keep_score = part_info['score']
+                                keep_id = media_id
 
                 if keep_id:
                     # Delete other items
