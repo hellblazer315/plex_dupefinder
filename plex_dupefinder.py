@@ -202,7 +202,7 @@ def get_item_metadata(item, item_metadata=None):
 
     return metadata
 
-def get_media_info(item):
+def get_media_info(item, item_metadata):
     """
     Extract relevant metadata from a Plex media item object.
     This includes codecs, resolution, bitrate, dimensions,
@@ -542,10 +542,10 @@ def get_arr_override_id(parts):
     Only used if *arr integration is enabled in config.
     """
     # Radarr logic for movies
-    if ['SCORING']['RADARR']['enabled']:
+    if cfg['SCORING']['RADARR']['enabled']:
         for media_id, part_info in parts.items():
-            if part_info.get('media_type') == 'movie':
-                tmdb_id = part_info.get('tmdb_id')
+            if part_info['media_type'] == 'movie':
+                tmdb_id = part_info['tmdb_id']
                 if tmdb_id:
                     radarr_file = get_radarr_file(tmdb_id)
                     if radarr_file and os.path.basename(part_info['file'][0]) == radarr_file:
