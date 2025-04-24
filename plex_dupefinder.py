@@ -186,6 +186,21 @@ def get_score(media_info):
 
     return int(score)
 
+def get_item_metadata(item, item_metadata=None):
+    metadata = {
+        'media_type': safe_getattr(item, 'type', default=None, label="Media item has no type"),
+        'tmdb_id': 0
+    }
+
+    guids = safe_getattr(item, 'guids', default=[], label="Media item has no guids")
+    for guid in item.guids:
+        if guid.id.startswith("tmdb://"):
+            try:
+                metadata['tmdb_id']=int(guid.id.replace("tmdb://", "").split("?")[0])
+            except ValueError:
+                log.warning(f"Failed to extract TMDB ID from guid: {guid.id}", extra=log_tz)
+
+    return metadata
 
 def get_media_info(item):
     """
@@ -222,14 +237,8 @@ def get_media_info(item):
     info['video_width'] = safe_getattr(item, 'width', default=0, label="Media item has no width")
     info['video_duration'] = safe_getattr(item, 'duration', default=0, label="Media item has no duration")
     info['audio_codec'] = safe_getattr(item, 'audioCodec', default='Unknown', label="Media item has no audioCodec")
-    info['media_type'] = safe_getattr(item, 'type', default='Unknown', label="Media item has no type")
-
-    guid = safe_getattr(item, 'guid', default=None, label="Media item has no guid")
-    if guid and guid.startswith("tmdb://"):
-        try:
-            info['tmdb_id'] = int(guid.replace("tmdb://", "").split("?")[0])
-        except Exception:
-            log.debug(f"Unable to parse TMDB ID from guid: {guid}", extra=log_tz)
+    info['media_type'] = item_metadata.get('media_type', 'Unknown') if item_metadata else 'Unknown'
+    info['tmdb_id'] = item_metadata.get('tmdb_id', 0) if item_metadata else 0
 
     # Get Audio Channels
     try:
@@ -461,7 +470,7 @@ def kbps_to_string(size_kbps):
     return "%d Bbps" % size_kbps
 
 
-def build_tabulated(parts, items):
+def build_tabulated(parts, items, arr_override_id=None):
     """
     Build a tabular representation of duplicates for user-friendly CLI display.
     Headers and layout adapt based on config flags.
@@ -533,7 +542,7 @@ def get_arr_override_id(parts):
     Only used if *arr integration is enabled in config.
     """
     # Radarr logic for movies
-    if cfg['SCORING'].get('RADARR', {}).get('enabled', False):
+    if ['SCORING']['RADARR']['enabled']:
         for media_id, part_info in parts.items():
             if part_info.get('media_type') == 'movie':
                 tmdb_id = part_info.get('tmdb_id')
@@ -628,10 +637,11 @@ if __name__ == "__main__":
                         log.debug("%r,%r -- %s exists = %s; size = %s", media.id, part.id, part.file, part.exists, part.size, extra=log_tz)
                             
             # Loop through returned parts for media item (copy 1, copy 2...)
+            item_metadata = get_item_metadata(item)
             parts = {}
             for part in item.media:
                 # Extract metadata and file info from media part
-                part_info = get_media_info(part)
+                part_info = get_media_info(part, item_metadata)
                 
                 # Skip Plex-optimized versions
                 if part.isOptimizedVersion:
@@ -768,7 +778,7 @@ if __name__ == "__main__":
                     partz[media_id] = part_info
 
                 arr_override_id = get_arr_override_id(parts)
-                headers, data = build_tabulated(partz, media_items)
+                headers, data = build_tabulated(partz, media_items, arr_override_id)
                 print(tabulate(data, headers=headers))
 
                 # Prompt user for selection
@@ -776,28 +786,31 @@ if __name__ == "__main__":
                 if arr_override_id and cfg['SCORING']['RADARR']['enabled']:
                     prompt_msg += " | r = *arr preferred"
                 prompt_msg += "): "
-                keep_item = input(prompt_msg)
-                if keep_item.lower() == 'r' and arr_override_id:
-                    # Use *arr preferred if "r" input and a *arr override exists
-                    keep_id = arr_override_id
-                    print(f"\tKeeping (*arr preferred): {keep_id}")
-                    write_decision(title=item, keeping=parts[keep_id])
-                elif (keep_item.lower() != 's') and (keep_item.lower() == 'b' or 0 < int(keep_item) <= len(media_items)):
-                    # Process if either "b" or a valid 'id' input
+
+                keep_item = input(prompt_msg).lower().strip()   
+                if (keep_item != 's') and (keep_item == 'b' or keep_item == 'r' or 0 < int(keep_item) <= len(media_items)):
+                    # Process if either "r", "b" or a valid 'id' input
                     write_decision(title=item)
                     for media_id, part_info in parts.items():
-                        if (keep_item.lower() == 'b' and best_item == part_info) or \
-                        (keep_item.lower() != 'b' and media_id == media_items[int(keep_item)]):
+                        if keep_item == 'r' and arr_override_id and media_id == arr_override_id:
+                            # Use *arr preferred if "r" input and a *arr override exists
+                            print("\tKeeping (%d - *arr preferred): %r" % (part_info['score'], media_id))
+                            write_decision(keeping=part_info)
+                        elif keep_item == 'b' and best_item == part_info:
                             # Keep best item if "b" input
-                            print("\tKeeping (%d): %r" % (part_info['score'], media_id))
+                            print("\tKeeping (%d - best score): %r" % (part_info['score'], media_id))
+                            write_decision(keeping=part_info)
+                        elif keep_item not in ['b', 'r'] and media_id == media_items[int(keep_item)]:
+                            # Keep user specified 'id'
+                            print("\tKeeping (%d - manual): %r" % (part_info['score'], media_id))
                             write_decision(keeping=part_info)
                         else:
-                            # Remove selection if specific 'id' input
+                            # Remove any other part
                             print("\tRemoving (%d): %r" % (part_info['score'], media_id))
                             delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                             write_decision(removed=part_info)
                             time.sleep(2)
-                elif keep_item.lower() == 's' or int(keep_item) == 0:
+                elif keep_item == 's' or int(keep_item) == 0:
                     # Skip item if "s" input
                     print("Skipping deletion(s) for %r" % item)
                 else:

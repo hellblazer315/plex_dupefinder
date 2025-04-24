@@ -38,7 +38,7 @@ base_config = {
             'multiplier': 2
         },
         'RADARR': {  # Optionally, use Radarr to determine which file to keep
-            'enabled': false,
+            'enabled': False,
             'url': "http://localhost:7878",
             'api_key': "abc123"
         }
