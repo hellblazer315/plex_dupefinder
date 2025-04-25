@@ -186,8 +186,23 @@ def get_score(media_info):
 
     return int(score)
 
+def get_item_metadata(item, item_metadata=None):
+    metadata = {
+        'media_type': safe_getattr(item, 'type', default=None, label="Media item has no type"),
+        'tmdb_id': 0
+    }
 
-def get_media_info(item):
+    guids = safe_getattr(item, 'guids', default=[], label="Media item has no guids")
+    for guid in item.guids:
+        if guid.id.startswith("tmdb://"):
+            try:
+                metadata['tmdb_id']=int(guid.id.replace("tmdb://", "").split("?")[0])
+            except ValueError:
+                log.warning(f"Failed to extract TMDB ID from guid: {guid.id}", extra=log_tz)
+
+    return metadata
+
+def get_media_info(item, item_metadata):
     """
     Extract relevant metadata from a Plex media item object.
     This includes codecs, resolution, bitrate, dimensions,
@@ -208,7 +223,9 @@ def get_media_info(item):
         'multipart': False,
         'file_exists': True,  # Used with FIND_UNAVAILABLE
         'file_exts': {},      # Used with FIND_EXTRA_TS; It is an array whose keys are the file extensions and whose values are the count of media with that file extension
-        'file_size': 0
+        'file_size': 0,
+        'media_type': 'Unknown',
+        'tmdb_id': 0
     }
 
     # Retrieve attributes with logging & fallback
@@ -220,6 +237,8 @@ def get_media_info(item):
     info['video_width'] = safe_getattr(item, 'width', default=0, label="Media item has no width")
     info['video_duration'] = safe_getattr(item, 'duration', default=0, label="Media item has no duration")
     info['audio_codec'] = safe_getattr(item, 'audioCodec', default='Unknown', label="Media item has no audioCodec")
+    info['media_type'] = item_metadata.get('media_type', 'Unknown') if item_metadata else 'Unknown'
+    info['tmdb_id'] = item_metadata.get('tmdb_id', 0) if item_metadata else 0
 
     # Get Audio Channels
     try:
@@ -451,7 +470,7 @@ def kbps_to_string(size_kbps):
     return "%d Bbps" % size_kbps
 
 
-def build_tabulated(parts, items):
+def build_tabulated(parts, items, arr_override_id=None):
     """
     Build a tabular representation of duplicates for user-friendly CLI display.
     Headers and layout adapt based on config flags.
@@ -480,7 +499,10 @@ def build_tabulated(parts, items):
             elif 'score' in k:
                 tmp.append(str(format(parts[item_id][k], ',d')))
             elif 'id' in k:
-                tmp.append(parts[item_id][k])
+                id_val = str(parts[item_id][k])
+                if item_id == arr_override_id and cfg['SCORING']['RADARR']['enabled']:
+                    id_val += " ⭐"
+                tmp.append(id_val)
             elif 'file' in k:
                 tmp.append(parts[item_id]['file_short'])
             elif 'size' in k:
@@ -496,6 +518,41 @@ def build_tabulated(parts, items):
         part_data.append(tmp)
 
     return headers, part_data
+
+def get_radarr_file(tmdb_id):
+    """Fetch the file name from Radarr using the TMDB ID."""
+    radarr_url = cfg['SCORING']['RADARR']['url']
+    api_key = cfg['SCORING']['RADARR']['api_key']
+    
+    headers = {"X-Api-Key": api_key}
+    params = {"tmdbId": tmdb_id}
+    
+    response = requests.get(f"{radarr_url}/api/v3/movie", headers=headers, params=params)
+    if response.status_code == 200:
+        movies = response.json()
+        if movies:
+            movie = movies[0]  # Assume the first match is correct
+            if "movieFile" in movie and "relativePath" in movie["movieFile"]:
+                return movie["movieFile"]["relativePath"]  # Extract just the filename
+    return None
+
+def get_arr_override_id(parts):
+    """
+    Return the media_id of the part matching a *arr (currently Radarr) preferred file.
+    Only used if *arr integration is enabled in config.
+    """
+    # Radarr logic for movies
+    if cfg['SCORING']['RADARR']['enabled']:
+        for media_id, part_info in parts.items():
+            if part_info['media_type'] == 'movie':
+                tmdb_id = part_info['tmdb_id']
+                if tmdb_id:
+                    radarr_file = get_radarr_file(tmdb_id)
+                    if radarr_file and os.path.basename(part_info['file'][0]) == radarr_file:
+                        log.info(f"Radarr override matched file: {radarr_file}", extra=log_tz)
+                        return media_id
+    # Placeholder for future Sonarr support
+    return None
 
 
 ############################################################
@@ -580,10 +637,11 @@ if __name__ == "__main__":
                         log.debug("%r,%r -- %s exists = %s; size = %s", media.id, part.id, part.file, part.exists, part.size, extra=log_tz)
                             
             # Loop through returned parts for media item (copy 1, copy 2...)
+            item_metadata = get_item_metadata(item)
             parts = {}
             for part in item.media:
                 # Extract metadata and file info from media part
-                part_info = get_media_info(part)
+                part_info = get_media_info(part, item_metadata)
                 
                 # Skip Plex-optimized versions
                 if part.isOptimizedVersion:
@@ -633,157 +691,189 @@ if __name__ == "__main__":
     # - Offer interactive or automatic deletion
     ############################################################
 
-    # time.sleep(5)
-    for item, parts in process_later.items():
-        # Remove all unavailable media that are not in SKIP_LIST
-        if cfg['RUNTIME']['FIND_UNAVAILABLE']:
-            title_decided = False
-            for media_id, part_info in parts.items():
-                if not part_info['file_exists']:
-                    if not title_decided:
-                        title_decided = True
-                        write_decision(title=item)
-
-                    if should_skip_deletion(media_id, part_info, context="UNAVAILABLE"):
-                        continue
-                    
-                    # Delete the media part
-                    log.info("Removing unavailable media : %r - %r (size: %r)",
-                             media_id, part_info['file_short'], part_info['file_size'], extra=log_tz)
-                    print("Removing unavailable media : %r - %r (size: %r)" %
-                          (media_id, part_info['file_short'], part_info['file_size']))
-                    delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
-                    write_decision(removed=part_info)
-                    time.sleep(2)
-
-        # Additional cleanup logic for .ts files (if configured)
-        if cfg['RUNTIME']['FIND_EXTRA_TS']:
-            title_decided = False
-            file_exts = {}
-            for media_id, part_info in parts.items():
-                for k,v in part_info['file_exts'].items():
-                    file_exts[k] = file_exts.get(k, 0) + v
-
-            # Only remove .ts files if there's at least one other type present
-            if len(file_exts) > 1 and ".ts" in file_exts:
+    try:
+        for item, parts in process_later.items():
+            # Remove all unavailable media that are not in SKIP_LIST
+            if cfg['RUNTIME']['FIND_UNAVAILABLE']:
+                title_decided = False
                 for media_id, part_info in parts.items():
-                    if ".ts" in part_info['file_exts']:
+                    if not part_info['file_exists']:
                         if not title_decided:
                             title_decided = True
                             write_decision(title=item)
+
+                        if should_skip_deletion(media_id, part_info, context="UNAVAILABLE"):
+                            continue
                         
-                        # Skip if part contains multiple types
-                        if len(part_info['file_exts']) != 1:
-                            print("\tSkipping removal of %r as there is more than one file type that make up %r for %s."
-                                  % (part_info['file_short'], media_id, item))
-                            continue
-
-                        if should_skip_deletion(media_id, part_info, context="EXTRA_TS", check_file_size=False):
-                            continue
-
-                        # Delete the TS files
-                        log.info("Removing extra TS media : %r - %r", media_id, part_info['file_short'], extra=log_tz)
-                        print("Removing extra TS media : %r - %r" % (media_id, part_info['file_short']))
+                        # Delete the media part
+                        log.info("Removing unavailable media : %r - %r (size: %r)",
+                                media_id, part_info['file_short'], part_info['file_size'], extra=log_tz)
+                        print("Removing unavailable media : %r - %r (size: %r)" %
+                            (media_id, part_info['file_short'], part_info['file_size']))
                         delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                         write_decision(removed=part_info)
                         time.sleep(2)
 
-        if not cfg['RUNTIME']['SKIP_OTHER_DUPES']:
+            # Additional cleanup logic for .ts files (if configured)
+            if cfg['RUNTIME']['FIND_EXTRA_TS']:
+                title_decided = False
+                file_exts = {}
+                for media_id, part_info in parts.items():
+                    for k,v in part_info['file_exts'].items():
+                        file_exts[k] = file_exts.get(k, 0) + v
 
-            ############################################################
-            # DUPLICATE RESOLUTION
-            # Decide which duplicate to keep and remove others
-            # Based on config: interactive prompt or auto-delete
-            ############################################################
-
-            if not cfg['RUNTIME']['AUTO_DELETE']:
-                # Interactive/Manual Mode
-                partz = {}
-                print("\nWhich media item do you wish to keep for %r ?\n" % item)
-
-                if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
-                    sort_key = "id"
-                    sort_order_reverse = False
-                else:
-                    sort_key = "score"
-                    sort_order_reverse = True
-
-                # Sort parts by score (or ID) and build choice map
-                media_items = {}
-                best_item = None
-                for pos, (media_id, part_info) in enumerate(collections.OrderedDict(
-                        sorted(parts.items(), key=lambda x: x[1][sort_key], reverse=sort_order_reverse)).items(), start=1):
-
-                    if pos == 1:
-                        best_item = part_info  # Presume best item by score
-                    media_items[pos] = media_id
-                    partz[media_id] = part_info
-
-                headers, data = build_tabulated(partz, media_items)
-                print(tabulate(data, headers=headers))
-
-                # Prompt user for selection
-                keep_item = input("\nChoose item to keep (0 or s = skip | 1 or b = best): ")
-                if (keep_item.lower() != 's') and (keep_item.lower() == 'b' or 0 < int(keep_item) <= len(media_items)):
-                    write_decision(title=item)
+                # Only remove .ts files if there's at least one other type present
+                if len(file_exts) > 1 and ".ts" in file_exts:
                     for media_id, part_info in parts.items():
-                        if (keep_item.lower() == 'b' and best_item == part_info) or \
-                           (keep_item.lower() != 'b' and media_id == media_items[int(keep_item)]):
-                            print("\tKeeping (%d): %r" % (part_info['score'], media_id))
-                            write_decision(keeping=part_info)
-                        else:
-                            print("\tRemoving (%d): %r" % (part_info['score'], media_id))
+                        if ".ts" in part_info['file_exts']:
+                            if not title_decided:
+                                title_decided = True
+                                write_decision(title=item)
+                            
+                            # Skip if part contains multiple types
+                            if len(part_info['file_exts']) != 1:
+                                print("\tSkipping removal of %r as there is more than one file type that make up %r for %s."
+                                    % (part_info['file_short'], media_id, item))
+                                continue
+
+                            if should_skip_deletion(media_id, part_info, context="EXTRA_TS", check_file_size=False):
+                                continue
+
+                            # Delete the TS files
+                            log.info("Removing extra TS media : %r - %r", media_id, part_info['file_short'], extra=log_tz)
+                            print("Removing extra TS media : %r - %r" % (media_id, part_info['file_short']))
                             delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                             write_decision(removed=part_info)
                             time.sleep(2)
-                elif keep_item.lower() == 's' or int(keep_item) == 0:
-                    print("Skipping deletion(s) for %r" % item)
-                else:
-                    print("Unexpected response, skipping deletion(s) for %r" % item)
-            else:
-                # Auto-Delete Mode
-                print("\nDetermining best media item to keep for %r ..." % item)
-                keep_score = 0
-                keep_id = None
 
-                # Determine best item
-                if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
-                    # Decide best item by lowest ID (file path match)
-                    for media_id, part_info in parts.items():
-                        if keep_score == 0 or int(part_info['id']) < keep_score:
-                            keep_score = int(part_info['id'])
-                            keep_id = media_id
-                else:
-                    # Decide best item by highest score
-                    for media_id, part_info in parts.items():
-                        if int(part_info['score']) > keep_score:
-                            keep_score = part_info['score']
-                            keep_id = media_id
+            if not cfg['RUNTIME']['SKIP_OTHER_DUPES']:
 
-                if keep_id:
-                    # Delete other items
-                    write_decision(title=item)
-                    for media_id, part_info in parts.items():
-                        formatted_score = '{:,}'.format(part_info['score'])
-                        if media_id == keep_id:
-                            print("✅%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
-                            write_decision(keeping=part_info)
-                        else:
-                            print("\tRemoving : %r - %r" % (media_id, part_info['file']))
-                            if is_skip_list(part_info['file']):
-                                print("☑️%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
+                ############################################################
+                # DUPLICATE RESOLUTION
+                # Decide which duplicate to keep and remove others
+                # Based on config: interactive prompt or auto-delete
+                ############################################################
+
+                if not cfg['RUNTIME']['AUTO_DELETE']:
+                    # Interactive/Manual Mode
+                    partz = {}
+                    print("\nWhich media item do you wish to keep for %r ?\n" % item)
+
+                    if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
+                        sort_key = "id"
+                        sort_order_reverse = False
+                    else:
+                        sort_key = "score"
+                        sort_order_reverse = True
+
+                    # Sort parts by score (or ID) and build choice map
+                    media_items = {}
+                    best_item = None
+                    for pos, (media_id, part_info) in enumerate(collections.OrderedDict(
+                            sorted(parts.items(), key=lambda x: x[1][sort_key], reverse=sort_order_reverse)).items(), start=1):
+
+                        if pos == 1:
+                            best_item = part_info  # Presume best item by score
+                        media_items[pos] = media_id
+                        partz[media_id] = part_info
+
+                    arr_override_id = get_arr_override_id(parts)
+                    headers, data = build_tabulated(partz, media_items, arr_override_id)
+                    print(tabulate(data, headers=headers))
+
+                    # Prompt user for selection
+                    prompt_msg = "\nChoose item to keep (0 or s = skip | 1 or b = best"
+                    if arr_override_id and cfg['SCORING']['RADARR']['enabled']:
+                        prompt_msg += " | r = *arr preferred"
+                    prompt_msg += "): "
+
+                    keep_item = input(prompt_msg).lower().strip()   
+                    if (keep_item != 's') and (keep_item == 'b' or keep_item == 'r' or 0 < int(keep_item) <= len(media_items)):
+                        # Process if either "r", "b" or a valid 'id' input
+                        write_decision(title=item)
+                        for media_id, part_info in parts.items():
+                            if keep_item == 'r' and arr_override_id and media_id == arr_override_id:
+                                # Use *arr preferred if "r" input and a *arr override exists
+                                print("\tKeeping (%d - *arr preferred): %r" % (part_info['score'], media_id))
+                                write_decision(keeping=part_info)
+                            elif keep_item == 'b' and best_item == part_info:
+                                # Keep best item if "b" input
+                                print("\tKeeping (%d - best score): %r" % (part_info['score'], media_id))
+                                write_decision(keeping=part_info)
+                            elif keep_item not in ['b', 'r'] and media_id == media_items[int(keep_item)]:
+                                # Keep user specified 'id'
+                                print("\tKeeping (%d - manual): %r" % (part_info['score'], media_id))
+                                write_decision(keeping=part_info)
                             else:
-                                print("❌%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
+                                # Remove any other part
+                                print("\tRemoving (%d): %r" % (part_info['score'], media_id))
                                 delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
                                 write_decision(removed=part_info)
                                 time.sleep(2)
+                    elif keep_item == 's' or int(keep_item) == 0:
+                        # Skip item if "s" input
+                        print("Skipping deletion(s) for %r" % item)
+                    else:
+                        print("Unexpected response, skipping deletion(s) for %r" % item)
                 else:
-                    print("Unable to determine best media item to keep for %r", item)
-    
-    # Print/log final stats
-    total_deleted_size_gb = total_deleted_size / (1024 * 1024 * 1024)
-    print("Total Deleted Files:", total_deleted_files)
-    log.info("Total Deleted Files: %r", total_deleted_files, extra=log_tz)
-    print("Total Deleted Size (GB): {:.2f}".format(total_deleted_size_gb))
-    log.info("Total Deleted Size (GB): {:.2f}".format(total_deleted_size_gb), extra=log_tz)
+                    # Auto-Delete Mode
+                    print("\nDetermining best media item to keep for %r ..." % item)
+                    keep_score = 0
+                    keep_id = None
+
+                    # Determine best item
+                    if cfg['RUNTIME']['FIND_DUPLICATE_FILEPATHS_ONLY']:
+                        # Decide best item by lowest ID (file path match)
+                        for media_id, part_info in parts.items():
+                            if keep_score == 0 or int(part_info['id']) < keep_score:
+                                keep_score = int(part_info['id'])
+                                keep_id = media_id
+                    else:
+                        if cfg['SCORING']['RADARR']['enabled']:
+                            # Decide best item by Radarr/Sonarr
+                            arr_override_id = get_arr_override_id(parts)
+                            if arr_override_id:
+                                keep_id = arr_override_id
+                                log.info("Auto-deleting using *arr override (Radarr): %s", parts[keep_id]['file_short'], extra=log_tz)
+                                print(f"🛑 Auto-selected using Radarr override: {parts[keep_id]['file_short']}")
+                            else:
+                                log.info("No *arr override found, using score-based selection", extra=log_tz)
+                        else:
+                            log.info("*arr override disabled; using score-based selection", extra=log_tz)
+
+                        # Decide best item by score if *arr not used or found
+                        if not keep_id:
+                            for media_id, part_info in parts.items():
+                                if int(part_info['score']) > keep_score:
+                                    keep_score = part_info['score']
+                                    keep_id = media_id
+
+                    if keep_id:
+                        # Delete other items
+                        write_decision(title=item)
+                        for media_id, part_info in parts.items():
+                            formatted_score = '{:,}'.format(part_info['score'])
+                            if media_id == keep_id:
+                                print("✅%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
+                                write_decision(keeping=part_info)
+                            else:
+                                print("\tRemoving : %r - %r" % (media_id, part_info['file']))
+                                if is_skip_list(part_info['file']):
+                                    print("☑️%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
+                                else:
+                                    print("❌%s🔺 %s 🆔%d" % (formatted_score, part_info['file_short'], media_id))
+                                    delete_item(part_info['show_key'], media_id, part_info['file_size'], part_info['file_short'])
+                                    write_decision(removed=part_info)
+                                    time.sleep(2)
+                    else:
+                        print("Unable to determine best media item to keep for %r", item)
+    except KeyboardInterrupt:
+        print("\n⛔️ Process interrupted by user.")
+    finally:
+        # Print/log final stats
+        total_deleted_size_gb = total_deleted_size / (1024 * 1024 * 1024)
+        print("Total Deleted Files:", total_deleted_files)
+        log.info("Total Deleted Files: %r", total_deleted_files, extra=log_tz)
+        print("Total Deleted Size (GB): {:.2f}".format(total_deleted_size_gb))
+        log.info("Total Deleted Size (GB): {:.2f}".format(total_deleted_size_gb), extra=log_tz)
 

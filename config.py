@@ -27,7 +27,7 @@ base_config = {
     'PLEX': {  # Overarching category for Plex server settings
         'LIBRARIES': {},  # Plex libraries to scan (e.g., ['Movies', 'TV'])
         'SERVER_URL': 'https://plex.your-server.com',  # Plex server URL (https/http)
-        'AUTH_TOKEN': '',  # Plex API token (fetched via login or manually set)
+        'AUTH_TOKEN': ''  # Plex API token (fetched via login or manually set)
     },
     'SCORING': {  # Overarching category for enabling/disabling various scoring options
         'VIDEO_HEIGHT_MULTIPLIER': 2,  # Used in scoring: height (in pixels) * multiplier
@@ -37,6 +37,11 @@ base_config = {
             'enabled': True,
             'multiplier': 2
         },
+        'RADARR': {  # Optionally, use Radarr to determine which file to keep
+            'enabled': False,
+            'url': "http://localhost:7878",
+            'api_key': "abc123"
+        }
     },
     'AUDIO_CODEC_SCORES': {  # Custom audio codec scoring
         'Unknown': 0, 'wmapro': 200, 'mp2': 500, 'mp3': 1000, 'ac3': 1000, 'dca': 2000, 'pcm': 2500, 
