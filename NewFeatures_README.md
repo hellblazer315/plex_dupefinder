@@ -2,6 +2,16 @@
 
 This document outlines the additional features added to the Plex Dupefinder Python application.
 
+- [Dry Run Option](#dry-run-option)
+- [Prevent Plex Optimized Versions](#preventing-plex-optimized-versions)
+- [Handle Unavailable Files](#handling-unavailable-media-files)
+- [Delete .TS Files](#deleting-extra-ts-files)
+- [Skip Other Dupes (only delete Unavailable and .TS)](#skipping-other-duplicate-checks-batch-mode)
+- [Docker Image Support](#docker-image-support)
+- [Additional Scoring Options](#additional-scoring-options)
+- [Activity Log Date & Timezone](#activity-log-date--timezone)
+- [Radarr Support](#radarr-support)
+
 ## Dry Run Option
 
 The dry run option allows users to simulate the deletion process without actually deleting any files. This option is configured using the `DRY_RUN` parameter in the `config.json` file. When enabled, Plex Dupefinder will log potential delete operations without carrying them out.
@@ -45,3 +55,11 @@ Three additional options (`SCORE_VIDEOBITRATE`, `SCORE_AUDIOCHANNELS`, and `VIDE
 ## Activity Log Date & Timezone
 
 The `activity.log` file now tracks the date of every line as well as the timezone defined in the `config.json` file. The default value is UTC which mirrors the original script's functionality, if you would like to see the logs reported in a different timezone (such as the one your server is hosted in), update the `LOGGING_TIMEZONE` config value to match the **TZ_Identifier** from the table in [this wikipedia page](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). This will properly align with any shifts for daylight savings time.
+
+## Radarr Support
+
+Added support to use Radarr as the file selector. This is most useful if you have custom scoring formats (such as those from [TRaSH Guides](https://trash-guides.info/)) for your Radarr installation already defined, allowing you to use those configurations rather than having to recreate the same or different settings in this tool.
+
+When the `RADARR` setting has the **enabled** option set to `true`, Plex Dupefinder will use the configured **url** and **api_key** to query Radarr for which file it has imported for a given movie.
+
+If `AUTO_DELETE` is enabled, the file Radarr has on record will be the default selection. If the connection to Radarr fails or there is otherwise an issue it will fallback to the standard scoring method. If `AUTO_DELETE` is disabled, the file Radarr has on record will be marked with a ⭐ and using the "r" option will auto-select the Radarr determined file.
