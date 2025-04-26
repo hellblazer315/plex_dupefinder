@@ -189,7 +189,8 @@ def get_score(media_info):
 def get_item_metadata(item, item_metadata=None):
     metadata = {
         'media_type': safe_getattr(item, 'type', default=None, label="Media item has no type"),
-        'tmdb_id': 0
+        'tmdb_id': 0,
+        'tvdb_id': 0
     }
 
     guids = safe_getattr(item, 'guids', default=[], label="Media item has no guids")
@@ -199,6 +200,11 @@ def get_item_metadata(item, item_metadata=None):
                 metadata['tmdb_id']=int(guid.id.replace("tmdb://", "").split("?")[0])
             except ValueError:
                 log.warning(f"Failed to extract TMDB ID from guid: {guid.id}", extra=log_tz)
+        if guid.id.startswith("tvdb://"):
+            try:
+                metadata['tvdb_id'] = int(guid.id.replace("tvdb://", "").split("?")[0])
+            except ValueError:
+                log.warning(f"Failed to extract TVDB ID from guid: {guid.id}", extra=log_tz)
 
     return metadata
 
@@ -536,22 +542,46 @@ def get_radarr_file(tmdb_id):
                 return movie["movieFile"]["relativePath"]  # Extract just the filename
     return None
 
+def get_sonarr_file(tvdb_id):
+    """Fetch the file name from Sonarr using the TVDB ID."""
+    sonarr_url = cfg['SCORING']['SONARR']['url']
+    api_key = cfg['SCORING']['SONARR']['api_key']
+    
+    headers = {"X-Api-Key": api_key}
+    params = {"tvdbId": tvdb_id}
+    
+    response = requests.get(f"{sonarr_url}/api/v3/series", headers=headers, params=params)
+    if response.status_code == 200:
+        series_list = response.json()
+        if series_list:
+            series = series_list[0]  # Assume first result is correct
+            if "episodeFile" in series and "relativePath" in series["episodeFile"]:
+                return series["episodeFile"]["relativePath"]
+    return None
+
+
 def get_arr_override_id(parts):
     """
-    Return the media_id of the part matching a *arr (currently Radarr) preferred file.
+    Return the media_id of the part matching a *arr (Radarr/Sonarr) preferred file.
     Only used if *arr integration is enabled in config.
     """
-    # Radarr logic for movies
-    if cfg['SCORING']['RADARR']['enabled']:
-        for media_id, part_info in parts.items():
-            if part_info['media_type'] == 'movie':
-                tmdb_id = part_info['tmdb_id']
-                if tmdb_id:
-                    radarr_file = get_radarr_file(tmdb_id)
-                    if radarr_file and os.path.basename(part_info['file'][0]) == radarr_file:
-                        log.info(f"Radarr override matched file: {radarr_file}", extra=log_tz)
-                        return media_id
-    # Placeholder for future Sonarr support
+    for media_id, part_info in parts.items():
+        if part_info['media_type'] == 'movie' and cfg['SCORING']['RADARR']['enabled']:
+            # Movie/Radarr Logic
+            tmdb_id = part_info['tmdb_id']
+            if tmdb_id:
+                radarr_file = get_radarr_file(tmdb_id)
+                if radarr_file and os.path.basename(part_info['file'][0]) == radarr_file:
+                    log.info(f"Radarr override matched file: {radarr_file}", extra=log_tz)
+                    return media_id
+        elif part_info['media_type'] == 'episode' and cfg['SCORING']['SONARR']['enabled']:
+            # TV/Sonarr Logic
+            tvdb_id = part_info['tvdb_id']
+            if tvdb_id:
+                sonarr_file = get_sonarr_file(tvdb_id)
+                if sonarr_file and os.path.basename(part_info['file'][0]) == sonarr_file:
+                    log.info(f"Sonarr override matched file: {sonarr_file}", extra=log_tz)
+                    return media_id
     return None
 
 
@@ -783,8 +813,10 @@ if __name__ == "__main__":
 
                     # Prompt user for selection
                     prompt_msg = "\nChoose item to keep (0 or s = skip | 1 or b = best"
-                    if arr_override_id and cfg['SCORING']['RADARR']['enabled']:
-                        prompt_msg += " | r = *arr preferred"
+                    if arr_override_id:
+                        if (item.type == 'movie' and cfg['SCORING']['RADARR']['enabled']) or \
+                        (item.type == 'episode' and cfg['SCORING']['SONARR']['enabled']):
+                            prompt_msg += " | r = *arr preferred"
                     prompt_msg += "): "
 
                     keep_item = input(prompt_msg).lower().strip()   
@@ -829,13 +861,17 @@ if __name__ == "__main__":
                                 keep_score = int(part_info['id'])
                                 keep_id = media_id
                     else:
-                        if cfg['SCORING']['RADARR']['enabled']:
+                        if cfg['SCORING']['RADARR']['enabled'] or cfg['SCORING']['SONARR']['enabled']:
                             # Decide best item by Radarr/Sonarr
                             arr_override_id = get_arr_override_id(parts)
                             if arr_override_id:
                                 keep_id = arr_override_id
-                                log.info("Auto-deleting using *arr override (Radarr): %s", parts[keep_id]['file_short'], extra=log_tz)
-                                print(f"🛑 Auto-selected using Radarr override: {parts[keep_id]['file_short']}")
+                                if item.type == 'movie':
+                                    arr="Radarr"
+                                elif item.type == 'episode':
+                                    arr="Sonarr"
+                                log.info("Auto-deleting using *arr override (%s): %s", arr, parts[keep_id]['file_short'], extra=log_tz)
+                                print(f"🛑 Auto-selected using {arr} override: {parts[keep_id]['file_short']}")
                             else:
                                 log.info("No *arr override found, using score-based selection", extra=log_tz)
                         else:
