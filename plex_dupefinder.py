@@ -207,6 +207,9 @@ def get_item_metadata(item, item_metadata=None):
 
     elif item.type == 'episode':
         series_key = item.grandparentRatingKey
+        metadata['series_key'] = safe_getattr(item, 'grandparentRatingKey', default=0)
+        metadata['season_number'] = safe_getattr(item, 'parentIndex', default=0)
+        metadata['episode_number'] = safe_getattr(item, 'index', default=0)
 
         if series_key in series_metadata:
             metadata['tvdb_id'] = series_metadata[series_key]['tvdb_id']
@@ -277,9 +280,9 @@ def get_media_info(item, item_metadata):
     elif info['media_type'] == 'episode':
         # Extract TV specific metadata
         info['tvdb_id'] = item_metadata.get('tvdb_id', 0) if item_metadata else 0
-        info['series_key'] = safe_getattr(item, 'grandparentRatingKey', default=0)
-        info['season_number'] = safe_getattr(item, 'parentIndex', default=0)
-        info['episode_number'] = safe_getattr(item, 'index', default=0)
+        info['series_key'] = item_metadata.get('series_key', 0) if item_metadata else 0
+        info['season_number'] = item_metadata.get('season_number', 0) if item_metadata else 0
+        info['episode_number'] = item_metadata.get('episode_number', 0) if item_metadata else 0
 
 
     # Get Audio Channels
@@ -645,7 +648,9 @@ def get_arr_override_id(parts):
             tmdb_id = part_info['tmdb_id']
             if tmdb_id:
                 radarr_file = get_radarr_file(tmdb_id)
-                if radarr_file and os.path.basename(part_info['file'][0]) == radarr_file:
+                actual_file = os.path.basename(part_info['file'][0])
+                expected_file = os.path.basename(radarr_file)
+                if radarr_file and actual_file == expected_file:
                     log.info(f"Radarr override matched file: {radarr_file}", extra=log_tz)
                     return media_id
         elif part_info['media_type'] == 'episode' and cfg['SCORING']['SONARR']['enabled']:
@@ -656,7 +661,9 @@ def get_arr_override_id(parts):
             episode_number = part_info['episode_number']
             if tvdb_id and series_key and season_number and episode_number:
                 sonarr_file = get_sonarr_file(part_info)
-                if sonarr_file and os.path.basename(part_info['file'][0]) == sonarr_file:
+                actual_file = os.path.basename(part_info['file'][0])
+                expected_file = os.path.basename(sonarr_file)
+                if sonarr_file and actual_file == expected_file:
                     log.info(f"Sonarr override matched file: {sonarr_file}", extra=log_tz)
                     return media_id
 
@@ -945,9 +952,10 @@ if __name__ == "__main__":
                             arr_override_id = get_arr_override_id(parts)
                             if arr_override_id:
                                 keep_id = arr_override_id
-                                if item.type == 'movie':
+                                media_type = parts[keep_id]['media_type']
+                                if media_type == 'movie':
                                     arr="Radarr"
-                                elif item.type == 'episode':
+                                elif media_type == 'episode':
                                     arr="Sonarr"
                                 log.info("Auto-deleting using *arr override (%s): %s", arr, parts[keep_id]['file_short'], extra=log_tz)
                                 print(f"🛑 Auto-selected using {arr} override: {parts[keep_id]['file_short']}")
