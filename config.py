@@ -41,6 +41,11 @@ base_config = {
             'enabled': False,
             'url': "http://localhost:7878",
             'api_key': "abc123"
+        },
+        'SONARR': {  # Optionally, use Sonarr to determine which file to keep
+            'enabled': False,
+            'url': "http://localhost:8989",
+            'api_key': "abc123"
         }
     },
     'AUDIO_CODEC_SCORES': {  # Custom audio codec scoring

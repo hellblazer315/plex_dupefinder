@@ -29,6 +29,11 @@
       "enabled": false,
       "url": "http://localhost:7878",
       "api_key": "abc123"
+    },
+    "SONARR": {
+      "enabled": true,
+      "url": "http://localhost:8989",
+      "api_key": "abc123"
     }
   },
   "AUDIO_CODEC_SCORES": {
